@@ -11,12 +11,6 @@ import { defineSecret } from "firebase-functions/params";
 export const alphaVantageApiKey = defineSecret("ALPHA_VANTAGE_API_KEY");
 
 /**
- * Optional: Refresh secret for manual trigger authentication
- * Set using: firebase functions:secrets:set REFRESH_SECRET
- */
-export const refreshSecret = defineSecret("REFRESH_SECRET");
-
-/**
  * Alpha Vantage API configuration
  */
 export const ALPHA_VANTAGE_CONFIG = {

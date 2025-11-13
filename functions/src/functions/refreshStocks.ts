@@ -6,7 +6,7 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { alphaVantageApiKey, refreshSecret, CACHE_CONFIG } from "../config";
+import { alphaVantageApiKey, CACHE_CONFIG } from "../config";
 import { searchStocks } from "../services/alphavantage.service";
 import { upsertStocks } from "../services/firestore.service";
 import { logInfo, logError, logExecutionTime } from "../utils/logger";
@@ -38,21 +38,18 @@ export const refreshStockCache = onSchedule(
 
 /**
  * Manual trigger to refresh stock cache
- * Protected by a secret key for security
+ * You can optionally protect this with a secret in the future
  */
 export const triggerRefreshNow = onRequest(
   {
-    secrets: [alphaVantageApiKey, refreshSecret],
+    secrets: [alphaVantageApiKey],
   },
   async (req, res) => {
     const startTime = Date.now();
 
-    // Verify the refresh secret
-    const providedSecret = req.get("X-Refresh-Secret") || req.query.secret;
-    if (providedSecret !== refreshSecret.value()) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
+    // Optional: Add authentication here if needed
+    // For now, anyone can trigger this endpoint
+    // TODO: Add REFRESH_SECRET for production use
 
     try {
       logInfo("Manual stock refresh triggered");
