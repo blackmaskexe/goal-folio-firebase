@@ -50,7 +50,15 @@ export async function searchStocks(
       return [];
     }
 
-    return data.bestMatches || [];
+    // Transform Alpha Vantage response to our Stock format
+    const bestMatches = data.bestMatches || [];
+    return bestMatches.map((match) => ({
+      symbol: match["1. symbol"],
+      name: match["2. name"],
+      type: match["3. type"],
+      region: match["4. region"],
+      currency: match["8. currency"],
+    }));
   } catch (error) {
     logError("Failed to search stocks from Alpha Vantage", error, { keywords });
     throw error;

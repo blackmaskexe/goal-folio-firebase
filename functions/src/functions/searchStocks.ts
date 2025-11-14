@@ -9,49 +9,50 @@ import {
   searchStocksBySymbol,
   searchStocksByName,
   getStockBySymbol,
+  upsertStocks,
 } from "../services/firestore.service";
-import { logInfo, logError, logWarn } from "../utils/logger";
+import { searchStocks as searchAlphaVantage } from "../services/alphavantage.service";
+import { alphaVantageApiKey } from "../config";
+import { logInfo, logError } from "../utils/logger";
 import { StockDocument } from "../types/stock";
 
 /**
  * Search stocks endpoint
  *
- * Query parameters:
- * - q: search query (symbol or name)
- * - type: "symbol" or "name" (default: "symbol")
- * - limit: max results (default: 10, max: 50)
+ * Smart caching strategy:
+ * 1. First checks Firestore cache for matching stocks (searches both symbol AND name)
+ * 2. If no results found, calls Alpha Vantage API
+ * 3. Caches API results in Firestore for future queries
+ * 4. Returns results to user
  *
- * Example:
- * GET /searchStocks?q=AAPL
- * GET /searchStocks?q=apple&type=name&limit=5
+ * POST /searchStocks
+ * Content-Type: application/json
+ * {
+ *   "q": "AAPL",       // searches both symbol and name
+ *   "limit": 10        // optional: max results (default: 10, max: 50)
+ * }
  */
 export const searchStocks = onRequest(
   {
-    cors: true, // Enable CORS for frontend access
+    cors: true,
+    secrets: [alphaVantageApiKey],
   },
   async (req, res) => {
-    // Only allow GET requests
-    if (req.method !== "GET") {
-      res.status(405).json({ error: "Method not allowed" });
+    // Only allow POST requests
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed. Use POST" });
       return;
     }
 
-    const query = req.query.q as string;
-    const searchType = (req.query.type as string) || "symbol";
-    const limitParam = parseInt(req.query.limit as string) || 10;
+    // Get parameters from request body
+    const query = req.body?.q as string;
+    const limitParam = parseInt(req.body?.limit as string) || 10;
     const limit = Math.min(limitParam, 50); // Cap at 50 results
 
     // Validate query parameter
     if (!query || query.trim().length === 0) {
       res.status(400).json({
-        error: "Missing or empty query parameter 'q'",
-      });
-      return;
-    }
-
-    if (query.length < 1) {
-      res.status(400).json({
-        error: "Query must be at least 1 character long",
+        error: "Missing or empty 'q' in request body",
       });
       return;
     }
@@ -59,55 +60,88 @@ export const searchStocks = onRequest(
     try {
       const db = admin.firestore();
       let results: StockDocument[] = [];
+      let fromCache = true;
 
-      logInfo("Stock search request", { query, searchType, limit });
+      logInfo("Stock search request", { query, limit });
 
-      // If query looks like a complete symbol, try exact match first
-      if (searchType === "symbol" && query.length <= 5) {
-        const exactMatch = await getStockBySymbol(db, query.toUpperCase());
-        if (exactMatch) {
-          results = [exactMatch];
+      // STEP 1: Check Firestore cache first
+      // Search both symbol AND name simultaneously
+      const [symbolResults, nameResults] = await Promise.all([
+        searchStocksBySymbol(db, query, limit),
+        searchStocksByName(db, query, limit),
+      ]);
+
+      // Combine results and remove duplicates
+      const combinedResults = [...symbolResults, ...nameResults];
+      const uniqueResults = new Map<string, StockDocument>();
+
+      for (const stock of combinedResults) {
+        if (!uniqueResults.has(stock.symbol)) {
+          uniqueResults.set(stock.symbol, stock);
         }
       }
 
-      // If no exact match, do prefix search
+      results = Array.from(uniqueResults.values()).slice(0, limit);
+
+      // STEP 2: If still no results, call Alpha Vantage API
       if (results.length === 0) {
-        if (searchType === "name") {
-          results = await searchStocksByName(db, query, limit);
-        } else {
-          results = await searchStocksBySymbol(db, query, limit);
+        logInfo("No results in cache, calling Alpha Vantage API", { query });
+        fromCache = false;
+
+        try {
+          const apiResults = await searchAlphaVantage(
+            alphaVantageApiKey.value(),
+            query
+          );
+
+          if (apiResults.length > 0) {
+            // STEP 3: Cache all results from API
+            logInfo(`Caching ${apiResults.length} stocks from API`, { query });
+            await upsertStocks(db, apiResults);
+
+            // Convert to StockDocument format for response
+            // Fetch them back from Firestore to get the full StockDocument structure
+            const symbols = apiResults.map((s) => s.symbol);
+            const cachedResults = await Promise.all(
+              symbols.map((symbol) => getStockBySymbol(db, symbol))
+            );
+
+            results = cachedResults.filter(
+              (r): r is StockDocument => r !== null
+            );
+          }
+        } catch (apiError) {
+          logError("Alpha Vantage API call failed", apiError, { query });
+          // Don't throw - return empty results with error info
+          res.status(200).json({
+            success: true,
+            query,
+            count: 0,
+            results: [],
+            fromCache: false,
+            apiError:
+              apiError instanceof Error ? apiError.message : "API call failed",
+          });
+          return;
         }
       }
 
-      // If still no results, try the other search type
-      if (results.length === 0) {
-        logWarn("No results found, trying alternate search type", {
-          query,
-          searchType,
-        });
-        if (searchType === "symbol") {
-          results = await searchStocksByName(db, query, limit);
-        } else {
-          results = await searchStocksBySymbol(db, query, limit);
-        }
-      }
-
+      // STEP 4: Return results
       res.status(200).json({
         success: true,
         query,
-        searchType,
         count: results.length,
+        fromCache,
         results: results.map((stock) => ({
           symbol: stock.symbol,
           name: stock.name,
           type: stock.type,
           region: stock.region,
           currency: stock.currency,
-          matchScore: stock.matchScore,
         })),
       });
     } catch (error) {
-      logError("Stock search failed", error, { query, searchType });
+      logError("Stock search failed", error, { query });
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : "Internal server error",
@@ -119,24 +153,37 @@ export const searchStocks = onRequest(
 /**
  * Get stock details by symbol
  *
- * Example:
+ * Accepts both GET (query params) and POST (JSON body):
+ *
  * GET /getStock?symbol=AAPL
+ *
+ * POST /getStock
+ * Content-Type: application/json
+ * { "symbol": "AAPL" }
  */
 export const getStock = onRequest(
   {
     cors: true,
   },
   async (req, res) => {
-    if (req.method !== "GET") {
-      res.status(405).json({ error: "Method not allowed" });
+    // Allow both GET and POST
+    if (req.method !== "GET" && req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed. Use GET or POST" });
       return;
     }
 
-    const symbol = req.query.symbol as string;
+    // Get symbol from query params (GET) or request body (POST)
+    const symbol =
+      req.method === "POST"
+        ? (req.body?.symbol as string)
+        : (req.query.symbol as string);
 
     if (!symbol || symbol.trim().length === 0) {
       res.status(400).json({
-        error: "Missing or empty query parameter 'symbol'",
+        error:
+          req.method === "POST"
+            ? "Missing or empty 'symbol' in request body"
+            : "Missing or empty query parameter 'symbol'",
       });
       return;
     }

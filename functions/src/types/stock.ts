@@ -4,6 +4,22 @@
 
 /**
  * Stock data as received from Alpha Vantage API
+ * API returns fields with numeric prefixes like "1. symbol"
+ */
+export interface AlphaVantageStock {
+  "1. symbol": string;
+  "2. name": string;
+  "3. type": string; // e.g., "Equity", "ETF"
+  "4. region": string; // e.g., "United States"
+  "5. marketOpen": string; // e.g., "09:30"
+  "6. marketClose": string; // e.g., "16:00"
+  "7. timezone": string; // e.g., "UTC-04"
+  "8. currency": string; // e.g., "USD"
+  "9. matchScore": string; // e.g., "1.0000"
+}
+
+/**
+ * Stock data in normalized format for internal use
  */
 export interface Stock {
   symbol: string;
@@ -11,7 +27,6 @@ export interface Stock {
   type?: string; // e.g., "Equity", "ETF"
   region?: string; // e.g., "United States"
   currency?: string; // e.g., "USD"
-  matchScore?: string; // relevance score from search
 }
 
 /**
@@ -28,7 +43,7 @@ export interface StockDocument extends Stock {
  * Response from Alpha Vantage search endpoint
  */
 export interface AlphaVantageSearchResponse {
-  bestMatches?: Stock[];
+  bestMatches?: AlphaVantageStock[];
 }
 
 /**
