@@ -94,14 +94,22 @@ export const searchStocks = onRequest(
             query
           );
 
-          if (apiResults.length > 0) {
+          // Filter out symbols with dots or special characters before caching
+          const validSymbolPattern = /^[A-Z0-9-]+$/;
+          const filteredApiResults = apiResults.filter((stock) =>
+            validSymbolPattern.test(stock.symbol)
+          );
+
+          if (filteredApiResults.length > 0) {
             // STEP 3: Cache all results from API
-            logInfo(`Caching ${apiResults.length} stocks from API`, { query });
-            await upsertStocks(db, apiResults);
+            logInfo(`Caching ${filteredApiResults.length} stocks from API`, {
+              query,
+            });
+            await upsertStocks(db, filteredApiResults);
 
             // Convert to StockDocument format for response
             // Fetch them back from Firestore to get the full StockDocument structure
-            const symbols = apiResults.map((s) => s.symbol);
+            const symbols = filteredApiResults.map((s) => s.symbol);
             const cachedResults = await Promise.all(
               symbols.map((symbol) => getStockBySymbol(db, symbol))
             );
@@ -126,13 +134,20 @@ export const searchStocks = onRequest(
         }
       }
 
-      // STEP 4: Return results
+      // STEP 4: Filter out unwanted symbols (those with dots or special characters)
+      // Keep only symbols with letters, numbers, and hyphens (e.g., AAPL, BRK-B)
+      const filteredResults = results.filter((stock) => {
+        // Allow only alphanumeric characters and hyphens
+        const validSymbolPattern = /^[A-Z0-9-]+$/;
+        return validSymbolPattern.test(stock.symbol);
+      });
+
       res.status(200).json({
         success: true,
         query,
-        count: results.length,
+        count: filteredResults.length,
         fromCache,
-        results: results.map((stock) => ({
+        results: filteredResults.map((stock) => ({
           symbol: stock.symbol,
           name: stock.name,
           type: stock.type,
