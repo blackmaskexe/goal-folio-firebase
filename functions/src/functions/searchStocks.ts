@@ -14,7 +14,11 @@ import {
 import { searchStocks as searchAlphaVantage } from "../services/alphavantage.service";
 import { alphaVantageApiKey } from "../config";
 import { logInfo, logError } from "../utils/logger";
-import { StockDocument } from "../types/stock";
+import {
+  StockDocument,
+  SearchStocksBody,
+  GetStockParams,
+} from "../types/stock";
 
 /**
  * Search stocks endpoint
@@ -34,7 +38,6 @@ import { StockDocument } from "../types/stock";
  */
 export const searchStocks = onRequest(
   {
-    cors: true,
     secrets: [alphaVantageApiKey],
   },
   async (req, res) => {
@@ -44,10 +47,14 @@ export const searchStocks = onRequest(
       return;
     }
 
-    // Get parameters from request body
-    const query = req.body?.q as string;
-    const limitParam = parseInt(req.body?.limit as string) || 10;
-    const limit = Math.min(limitParam, 50); // Cap at 50 results
+    // Destructure request body parameters
+    const { q: query, limit: limitParam } = req.body as SearchStocksBody;
+    const limit = Math.min(
+      typeof limitParam === "number"
+        ? limitParam
+        : parseInt(String(limitParam)) || 10,
+      50
+    );
 
     // Validate query parameter
     if (!query || query.trim().length === 0) {
@@ -176,62 +183,57 @@ export const searchStocks = onRequest(
  * Content-Type: application/json
  * { "symbol": "AAPL" }
  */
-export const getStock = onRequest(
-  {
-    cors: true,
-  },
-  async (req, res) => {
-    // Allow both GET and POST
-    if (req.method !== "GET" && req.method !== "POST") {
-      res.status(405).json({ error: "Method not allowed. Use GET or POST" });
-      return;
-    }
-
-    // Get symbol from query params (GET) or request body (POST)
-    const symbol =
-      req.method === "POST"
-        ? (req.body?.symbol as string)
-        : (req.query.symbol as string);
-
-    if (!symbol || symbol.trim().length === 0) {
-      res.status(400).json({
-        error:
-          req.method === "POST"
-            ? "Missing or empty 'symbol' in request body"
-            : "Missing or empty query parameter 'symbol'",
-      });
-      return;
-    }
-
-    try {
-      const db = admin.firestore();
-      const stock = await getStockBySymbol(db, symbol.toUpperCase());
-
-      if (!stock) {
-        res.status(404).json({
-          success: false,
-          error: "Stock not found",
-        });
-        return;
-      }
-
-      res.status(200).json({
-        success: true,
-        result: {
-          symbol: stock.symbol,
-          name: stock.name,
-          type: stock.type,
-          region: stock.region,
-          currency: stock.currency,
-          lastUpdated: stock.lastUpdated.toDate().toISOString(),
-        },
-      });
-    } catch (error) {
-      logError("Get stock failed", error, { symbol });
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : "Internal server error",
-      });
-    }
+export const getStock = onRequest({}, async (req, res) => {
+  // Allow both GET and POST
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed. Use GET or POST" });
+    return;
   }
-);
+
+  // Destructure symbol from query params (GET) or request body (POST)
+  const { symbol } =
+    req.method === "POST"
+      ? (req.body as GetStockParams)
+      : (req.query as GetStockParams);
+
+  if (!symbol || symbol.trim().length === 0) {
+    res.status(400).json({
+      error:
+        req.method === "POST"
+          ? "Missing or empty 'symbol' in request body"
+          : "Missing or empty query parameter 'symbol'",
+    });
+    return;
+  }
+
+  try {
+    const db = admin.firestore();
+    const stock = await getStockBySymbol(db, symbol.toUpperCase());
+
+    if (!stock) {
+      res.status(404).json({
+        success: false,
+        error: "Stock not found",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      result: {
+        symbol: stock.symbol,
+        name: stock.name,
+        type: stock.type,
+        region: stock.region,
+        currency: stock.currency,
+        lastUpdated: stock.lastUpdated.toDate().toISOString(),
+      },
+    });
+  } catch (error) {
+    logError("Get stock failed", error, { symbol });
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Internal server error",
+    });
+  }
+});

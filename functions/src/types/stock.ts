@@ -105,3 +105,42 @@ export interface TimeSeriesIntradayResponse {
   "Error Message"?: string;
   Note?: string; // Rate limit warning
 }
+
+/**
+ * Query parameters for intraday prices endpoint
+ * All query params are strings from HTTP request
+ * All fields are optional since query params may not be present
+ */
+export interface IntradayPricesQuery {
+  symbol?: string;
+  interval?: string;
+  outputSize?: string;
+  adjusted?: string;
+  extendedHours?: string;
+  month?: string;
+}
+
+/**
+ * Query parameters for recent open day endpoint
+ * All query params are strings from HTTP request
+ * All fields are optional since query params may not be present
+ */
+export interface RecentOpenDayQuery {
+  symbol?: string;
+  interval?: string;
+}
+
+/**
+ * Request body for search stocks endpoint
+ */
+export interface SearchStocksBody {
+  q?: string;
+  limit?: string | number;
+}
+
+/**
+ * Query/Body parameters for get stock endpoint
+ */
+export interface GetStockParams {
+  symbol?: string;
+}
