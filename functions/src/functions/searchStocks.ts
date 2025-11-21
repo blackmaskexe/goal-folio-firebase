@@ -14,6 +14,7 @@ import {
 import { searchStocks as searchAlphaVantage } from "../services/alphavantage.service";
 import { alphaVantageApiKey } from "../config";
 import { logInfo, logError } from "../utils/logger";
+import { toISOString } from "../utils/date";
 import {
   StockDocument,
   SearchStocksBody,
@@ -226,7 +227,7 @@ export const getStock = onRequest({}, async (req, res) => {
         type: stock.type,
         region: stock.region,
         currency: stock.currency,
-        lastUpdated: stock.lastUpdated.toDate().toISOString(),
+        lastUpdated: toISOString(stock.lastUpdated),
       },
     });
   } catch (error) {

@@ -16,12 +16,14 @@ import {
   updateDailyPrice,
   aggregateToDaily,
 } from "../services/priceCache.service";
+import { findRecentCachedData } from "../services/cacheHelper.service";
 import { logInfo } from "../utils/logger";
+import { getTodayString, toISOString } from "../utils/date";
 
 /**
  * Fetch intraday prices for a stock
  * Returns: { symbol, interval, candles }
- * 
+ *
  * Caching strategy:
  * 1. Check Firestore cache for today's date
  * 2. If cache hit and fresh → return cached data
@@ -51,7 +53,7 @@ export const getIntradayPrices = onCall(
     const normalizedSymbol = symbol.toUpperCase();
 
     // Determine the date we're fetching (today or specific month)
-    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const today = getTodayString();
     const targetDate = month || today;
 
     // Try to get from cache first
@@ -77,7 +79,7 @@ export const getIntradayPrices = onCall(
         symbol: normalizedSymbol,
         interval,
         candles: cachedPrices.map((candle) => ({
-          time: candle.time.toISOString(),
+          time: toISOString(candle.time),
           open: candle.open,
           high: candle.high,
           low: candle.low,
@@ -132,7 +134,7 @@ export const getIntradayPrices = onCall(
 /**
  * Get candles for the most recent open trading day
  * Returns: { symbol, interval, tradingDay, candles }
- * 
+ *
  * Caching strategy:
  * 1. Check cache for today's trading day
  * 2. If cache hit and fresh → return cached data
@@ -143,7 +145,7 @@ export const getRecentOpenDay = onCall(
   { secrets: [alphaVantageApiKey] },
   async (request) => {
     const symbol = request.data.symbol as string;
-    const requestedInterval = (request.data.interval as string) || "15min";
+    const requestedInterval = (request.data.interval as string) || "60min";
 
     if (!symbol || symbol.trim().length === 0) {
       throw new HttpsError("invalid-argument", "Symbol is required");
@@ -156,35 +158,35 @@ export const getRecentOpenDay = onCall(
       : "60min";
 
     const normalizedSymbol = symbol.toUpperCase();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getTodayString();
 
-    // Try cache first
-    logInfo("Checking cache for recent open day", {
+    // Try smart cache lookup with fallbacks
+    logInfo("Attempting smart cache lookup for recent open day", {
       symbol: normalizedSymbol,
-      interval,
+      preferredInterval: interval,
     });
 
-    const cachedPrices = await getCachedIntradayPrices(
-      normalizedSymbol,
-      today,
-      interval
-    );
+    const cachedData = await findRecentCachedData(normalizedSymbol, interval);
 
-    if (cachedPrices && cachedPrices.length > 0) {
-      const tradingDay = cachedPrices[0].time.toISOString().split("T")[0];
+    if (cachedData && cachedData.candles.length > 0) {
+      const cachedPrices = cachedData.candles;
 
-      logInfo("Returning cached recent open day", {
+      // Convert Date objects to ISO strings if needed
+      const tradingDay = toISOString(cachedPrices[0].time).split("T")[0];
+
+      logInfo("Returning cached recent open day (smart lookup)", {
         symbol: normalizedSymbol,
         tradingDay,
+        actualInterval: cachedData.actualInterval,
         count: cachedPrices.length,
       });
 
       return {
         symbol: normalizedSymbol,
-        interval,
+        interval: cachedData.actualInterval, // Return the actual interval we found
         tradingDay,
         candles: cachedPrices.map((candle) => ({
-          time: candle.time.toISOString(),
+          time: toISOString(candle.time),
           open: candle.open,
           high: candle.high,
           low: candle.low,
@@ -210,7 +212,7 @@ export const getRecentOpenDay = onCall(
     const tradingDay =
       candles.length > 0 ? candles[0].time.toISOString().split("T")[0] : null;
 
-    // Cache the fetched candles
+    // Only cache if we got valid data (not empty due to rate limit)
     if (candles.length > 0) {
       await cacheIntradayPrices(normalizedSymbol, today, interval, candles);
 
@@ -219,6 +221,12 @@ export const getRecentOpenDay = onCall(
       if (dailyCandle) {
         await updateDailyPrice(normalizedSymbol, today, dailyCandle);
       }
+    } else {
+      // Empty response - likely rate limit hit
+      // Log warning but don't cache
+      logInfo("Alpha Vantage returned empty response - possible rate limit", {
+        symbol: normalizedSymbol,
+      });
     }
 
     return {

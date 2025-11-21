@@ -11,6 +11,7 @@ import {
   TimeSeriesIntradayResponse,
 } from "../types/stock";
 import { logApiCall, logError, logWarn } from "../utils/logger";
+import { parseEasternTime, isSameDay } from "../utils/date";
 
 /**
  * Search for stocks by symbol or name
@@ -227,33 +228,6 @@ export async function fetchIntradayPrices(
 }
 
 /**
- * Parse a timestamp from Alpha Vantage (US/Eastern timezone) to a Date object
- * Format: "yyyy-MM-dd HH:mm:ss"
- *
- * @param timestamp - Timestamp string from Alpha Vantage
- * @returns Date object in UTC
- */
-function parseEasternTime(timestamp: string): Date {
-  // Alpha Vantage returns timestamps in US/Eastern Time
-  // We need to properly convert to UTC
-  const [datePart, timePart] = timestamp.split(" ");
-  const [year, month, day] = datePart.split("-").map(Number);
-  const [hour, minute, second] = timePart.split(":").map(Number);
-
-  // Create date in Eastern Time
-  // Note: This is a simplified approach. For production, consider using a library like date-fns-tz
-  // Eastern Time is UTC-5 (EST) or UTC-4 (EDT during daylight saving time)
-  // For simplicity, we'll assume EST (UTC-5) - you may want to handle DST properly
-  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-
-  // Adjust for Eastern Time offset (UTC-5)
-  // Add 5 hours to convert from EST to UTC
-  date.setUTCHours(date.getUTCHours() + 5);
-
-  return date;
-}
-
-/**
  * Get candles for the most recent open trading day
  * Equivalent to Swift's getRecentOpenDayCandles function
  *
@@ -291,15 +265,4 @@ export async function getRecentOpenDayCandles(
     });
     throw error;
   }
-}
-
-/**
- * Helper function to check if two dates are on the same day
- */
-function isSameDay(date1: Date, date2: Date): boolean {
-  return (
-    date1.getFullYear() === date2.getFullYear() &&
-    date1.getMonth() === date2.getMonth() &&
-    date1.getDate() === date2.getDate()
-  );
 }
