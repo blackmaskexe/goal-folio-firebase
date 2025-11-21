@@ -16,7 +16,7 @@ import {
   updateDailyPrice,
   aggregateToDaily,
 } from "../services/priceCache.service";
-import { findRecentCachedStockData } from "../services/cacheHelper.service";
+import { getRecentCachedStockData } from "../services/cacheHelper.service";
 import { logInfo } from "../utils/logger";
 import { toDateString, toISOString } from "../utils/date";
 
@@ -145,48 +145,37 @@ export const getRecentOpenDay = onCall(
   { secrets: [alphaVantageApiKey] },
   async (request) => {
     const symbol = request.data.symbol as string;
-    const requestedInterval = (request.data.interval as string) || "60min";
+    const interval = "15min"; // Hardcoded to 15min for single-day data
 
     if (!symbol || symbol.trim().length === 0) {
       throw new HttpsError("invalid-argument", "Symbol is required");
     }
 
-    // Default to 60min if invalid interval
-    const validIntervals = ["1min", "5min", "15min", "30min", "60min"];
-    const interval = validIntervals.includes(requestedInterval)
-      ? requestedInterval
-      : "60min";
-
     const normalizedSymbol = symbol.toUpperCase();
     const today = toDateString();
 
-    // Try smart cache lookup with fallbacks
-    logInfo("Attempting smart cache lookup for recent open day", {
+    // Try cache lookup
+    logInfo("Checking cache for recent open day", {
       symbol: normalizedSymbol,
-      preferredInterval: interval,
+      interval,
     });
 
-    const cachedData = await findRecentCachedStockData(
-      normalizedSymbol,
-      interval
-    );
+    const cachedPrices = await getRecentCachedStockData(normalizedSymbol);
 
-    if (cachedData && cachedData.candles.length > 0) {
-      const cachedPrices = cachedData.candles;
-
+    if (cachedPrices && cachedPrices.length > 0) {
       // Convert Date objects to ISO strings if needed
       const tradingDay = toISOString(cachedPrices[0].time).split("T")[0];
 
-      logInfo("Returning cached recent open day (smart lookup)", {
+      logInfo("Returning cached recent open day", {
         symbol: normalizedSymbol,
         tradingDay,
-        actualInterval: cachedData.actualInterval,
+        interval,
         count: cachedPrices.length,
       });
 
       return {
         symbol: normalizedSymbol,
-        interval: cachedData.actualInterval, // Return the actual interval we found
+        interval,
         tradingDay,
         candles: cachedPrices.map((candle) => ({
           time: toISOString(candle.time),
