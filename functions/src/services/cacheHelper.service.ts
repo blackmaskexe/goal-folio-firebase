@@ -14,7 +14,7 @@ import { getDaysAgoString } from "../utils/date";
  * 2. Recent dates (up to 5 days back)
  * 3. Any available interval for the date
  */
-export async function findRecentCachedData(
+export async function findRecentCachedStockData(
   symbol: string,
   preferredInterval: string
 ): Promise<{ candles: PriceCandle[]; actualInterval: string } | null> {

@@ -36,16 +36,11 @@ export function toDate(time: any): Date {
 
 /**
  * Convert a Date to YYYY-MM-DD format
+ * If no date is provided, defaults to today
  */
-export function toDateString(date: Date): string {
-  return date.toISOString().split("T")[0];
-}
-
-/**
- * Get today's date as YYYY-MM-DD string
- */
-export function getTodayString(): string {
-  return toDateString(new Date());
+export function toDateString(date?: Date): string {
+  const d = date || new Date();
+  return d.toISOString().split("T")[0];
 }
 
 /**

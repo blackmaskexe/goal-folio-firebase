@@ -16,9 +16,9 @@ import {
   updateDailyPrice,
   aggregateToDaily,
 } from "../services/priceCache.service";
-import { findRecentCachedData } from "../services/cacheHelper.service";
+import { findRecentCachedStockData } from "../services/cacheHelper.service";
 import { logInfo } from "../utils/logger";
-import { getTodayString, toISOString } from "../utils/date";
+import { toDateString, toISOString } from "../utils/date";
 
 /**
  * Fetch intraday prices for a stock
@@ -53,7 +53,7 @@ export const getIntradayPrices = onCall(
     const normalizedSymbol = symbol.toUpperCase();
 
     // Determine the date we're fetching (today or specific month)
-    const today = getTodayString();
+    const today = toDateString();
     const targetDate = month || today;
 
     // Try to get from cache first
@@ -158,7 +158,7 @@ export const getRecentOpenDay = onCall(
       : "60min";
 
     const normalizedSymbol = symbol.toUpperCase();
-    const today = getTodayString();
+    const today = toDateString();
 
     // Try smart cache lookup with fallbacks
     logInfo("Attempting smart cache lookup for recent open day", {
@@ -166,7 +166,10 @@ export const getRecentOpenDay = onCall(
       preferredInterval: interval,
     });
 
-    const cachedData = await findRecentCachedData(normalizedSymbol, interval);
+    const cachedData = await findRecentCachedStockData(
+      normalizedSymbol,
+      interval
+    );
 
     if (cachedData && cachedData.candles.length > 0) {
       const cachedPrices = cachedData.candles;
